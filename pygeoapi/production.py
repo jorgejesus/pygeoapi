@@ -1,6 +1,7 @@
 # =================================================================
 #
-# Authors: Tom Kralidis <tomkralidis@gmail.com>
+# Authors: Jorge S. Mendes de Jesus <jorge.jesus@gmail.com>
+#          
 #
 # Copyright (c) 2018 Tom Kralidis
 #
@@ -27,19 +28,36 @@
 #
 # =================================================================
 
-__version__ = '0.5.0'
+# Based on gunicorn generic documentation
+import multiprocessing
+import gunicorn.app.base
+from gunicorn.six import iteritems
 
-import click
-from pygeoapi.flask_app import serve,production
-from pygeoapi.openapi import generate_openapi_document
+def number_of_workers():
+        return (multiprocessing.cpu_count() * 2) + 1
 
+class ApplicationServer(gunicorn.app.base.BaseApplication):
+    """ Generic Gunicorn server class"""
+    def __init__(self, app, options=None):
+        """
+        Initialize object
 
-@click.group()
-@click.version_option(version=__version__)
-def cli():
-    pass
+        :param app: WSGI compliant object
+        :param options: options to be passed to gunicorn BaseApplication
 
+        """
+        
+        self.options = options or {}
+        self.application = app
+        super(ApplicationServer, self).__init__()
 
-cli.add_command(serve)
-cli.add_command(production)
-cli.add_command(generate_openapi_document)
+    def load_config(self):
+        config = dict([(key, value) for key, value in iteritems(self.options)
+                       if key in self.cfg.settings and value is not None])
+        for key, value in iteritems(config):
+            self.cfg.set(key.lower(), value)
+
+    def load(self):
+        return self.application
+    
+
