@@ -28,7 +28,7 @@
 #
 # =================================================================
 
-import os,sys
+import os
 
 from functools import wraps
 
@@ -49,7 +49,7 @@ if 'PYGEOAPI_CONFIG' not in os.environ:
     raise RuntimeError('PYGEOAPI_CONFIG environment variable not set')
 
 with open(os.environ.get('PYGEOAPI_CONFIG')) as fh:
-    CONFIG = yaml.load(fh,Loader=yaml.FullLoader)
+    CONFIG = yaml.load(fh, Loader=yaml.FullLoader)
 
 api_ = API(CONFIG)
 
@@ -158,12 +158,13 @@ def before_serve(f):
     def __wrapper(*args, **kwargs):
         if not api_.config['server']['pretty_print']:
             APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-        
+
         if 'cors' in api_.config['server'] and api_.config['server']['cors']:
             from flask_cors import CORS
             CORS(APP)
         return f(*args, **kwargs)
     return __wrapper
+
 
 @click.command()
 @click.pass_context
@@ -171,44 +172,43 @@ def before_serve(f):
 @before_serve
 def serve(ctx, debug=False):
     """Serve pygeoapi via Flask"""
-    
+
     APP.run(debug=True, host=api_.config['server']['bind']['host'],
             port=api_.config['server']['bind']['port'])
 
+
 @click.command()
 @click.pass_context
-@click.option('--workers', '-w', default=None,type=click.INT, \
-              help='Number of workers if not defined: (2*CPU)+1') 
+@click.option('--workers', '-w', default=None, type=click.INT,
+              help='Number of workers if not defined: (2*CPU)+1')
 def production(ctx, workers):
-    """Serve pygeoapi via gunicorn. Using the default 
+    """Serve pygeoapi via gunicorn. Using the default
     sync worker, 1 thread per worker and keep-alive of 2s
-    
+
     Gunicorn is not intended to be run on debug mode
-    """ 
-    
+    """
+
     if not workers:
         workers = number_of_workers()
-    
+
     options = {
-        'bind': '%s:%s' % (api_.config['server']['bind']['host'],\
-                            api_.config['server']['bind']['port']),
+        'bind': '%s:%s' % (api_.config['server']['bind']['host'],
+                           api_.config['server']['bind']['port']),
         'workers': workers,
         'accesslog': '-',
-        'errorlog': '-',    
+        'errorlog': '-',
     }
-    
-    
-    
-    if api_.config.get('logging',None) and  api_.config['logging'].get("level",None):
+
+    if api_.config.get('logging', None) and \
+       api_.config['logging'].get("level", None):
+
         log_level = api_.config["logging"]["level"]
         options["loglevel"] = log_level
     else:
         log_level = None
-    
-        
-        
-    
+
     ApplicationServer(APP, options).run()
-    
+
+
 if __name__ == '__main__':  # run locally, for testing
     serve()
