@@ -30,7 +30,7 @@
 __version__ = '0.5.0'
 
 import click
-from pygeoapi.flask_app import serve, production
+from pygeoapi.flask_app import serve
 from pygeoapi.openapi import generate_openapi_document
 
 
@@ -41,5 +41,4 @@ def cli():
 
 
 cli.add_command(serve)
-cli.add_command(production)
 cli.add_command(generate_openapi_document)

@@ -27,12 +27,29 @@
 #
 # =================================================================
 
+
+
 # Based on gunicorn generic documentation
+
+from functools import wraps
+import click
 
 import multiprocessing
 import gunicorn.app.base
 from gunicorn.six import iteritems
 
+
+def before_serve(f):
+    @wraps(f)
+    def __wrapper(*args, **kwargs):
+        if not api_.config['server']['pretty_print']:
+            APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
+
+        if 'cors' in api_.config['server'] and api_.config['server']['cors']:
+            from flask_cors import CORS
+            CORS(APP)
+        return f(*args, **kwargs)
+    return __wrapper
 
 def number_of_workers():
         return (multiprocessing.cpu_count() * 2) + 1
@@ -64,3 +81,40 @@ class ApplicationServer(gunicorn.app.base.BaseApplication):
     def load(self):
         """Load app into gunicorn"""
         return self.application
+
+
+@click.command()
+@click.option('--workers', '-w', default=None, type=click.INT,
+              help='Number of workers if not defined: (2*CPU)+1')
+def run(workers):
+    """Serve pygeoapi via gunicorn. Using the default
+    sync worker, 1 thread per worker and keep-alive of 2s
+
+    Gunicorn is not intended to be run on debug mode
+    """
+    # To prevent verbose when importing app
+    from pygeoapi.flask_app import APP,api_
+
+    if not workers:
+        workers = number_of_workers()
+
+    options = {
+        'bind': '%s:%s' % (api_.config['server']['bind']['host'],
+                           api_.config['server']['bind']['port']),
+        'workers': workers,
+        'accesslog': '-',
+        'errorlog': '-',
+    }
+
+    if api_.config.get('logging', None) and \
+       api_.config['logging'].get("level", None):
+
+        log_level = api_.config["logging"]["level"]
+        options["loglevel"] = log_level
+    else:
+        log_level = None
+
+    ApplicationServer(APP, options).run()
+
+if __name__ == '__main__':
+    run()
