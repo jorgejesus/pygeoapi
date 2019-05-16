@@ -1,4 +1,5 @@
 click
 Flask
+gunicorn
 PyYAML
 unicodecsv

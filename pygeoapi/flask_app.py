@@ -188,12 +188,25 @@ def production(ctx, workers):
     
     if not workers:
         workers = number_of_workers()
-
     
     options = {
-        'bind': '%s:%s' % (api_.config['server']['bind']['host'], api_.config['server']['bind']['port']),
+        'bind': '%s:%s' % (api_.config['server']['bind']['host'],\
+                            api_.config['server']['bind']['port']),
         'workers': workers,
+        'accesslog': '-',
+        'errorlog': '-',    
     }
+    
+    
+    
+    if api_.config.get('logging',None) and  api_.config['logging'].get("level",None):
+        log_level = api_.config["logging"]["level"]
+        options["loglevel"] = log_level
+    else:
+        log_level = None
+    
+        
+        
     
     ApplicationServer(APP, options).run()
     

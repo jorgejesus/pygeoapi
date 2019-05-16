@@ -52,12 +52,15 @@ class ApplicationServer(gunicorn.app.base.BaseApplication):
         super(ApplicationServer, self).__init__()
 
     def load_config(self):
+        """Load configuration from options dictionary into gunicorn"""
+        
         config = dict([(key, value) for key, value in iteritems(self.options)
                        if key in self.cfg.settings and value is not None])
         for key, value in iteritems(config):
             self.cfg.set(key.lower(), value)
 
     def load(self):
+        """Load app into gunicorn"""
         return self.application
     
 
