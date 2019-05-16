@@ -27,29 +27,15 @@
 #
 # =================================================================
 
-
-
 # Based on gunicorn generic documentation
 
-from functools import wraps
+
 import click
 
 import multiprocessing
 import gunicorn.app.base
 from gunicorn.six import iteritems
 
-
-def before_serve(f):
-    @wraps(f)
-    def __wrapper(*args, **kwargs):
-        if not api_.config['server']['pretty_print']:
-            APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-
-        if 'cors' in api_.config['server'] and api_.config['server']['cors']:
-            from flask_cors import CORS
-            CORS(APP)
-        return f(*args, **kwargs)
-    return __wrapper
 
 def number_of_workers():
         return (multiprocessing.cpu_count() * 2) + 1
@@ -92,8 +78,15 @@ def run(workers):
 
     Gunicorn is not intended to be run on debug mode
     """
-    # To prevent verbose when importing app
-    from pygeoapi.flask_app import APP,api_
+
+    from pygeoapi.flask_app import APP, api_
+
+    if not api_.config['server']['pretty_print']:
+        APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
+
+    if 'cors' in api_.config['server'] and api_.config['server']['cors']:
+        from flask_cors import CORS
+        CORS(APP)
 
     if not workers:
         workers = number_of_workers()
@@ -115,6 +108,7 @@ def run(workers):
         log_level = None
 
     ApplicationServer(APP, options).run()
+
 
 if __name__ == '__main__':
     run()
