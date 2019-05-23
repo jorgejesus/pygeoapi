@@ -29,7 +29,6 @@
 
 # Based on gunicorn generic documentation
 
-
 import click
 
 import multiprocessing
@@ -38,7 +37,7 @@ from gunicorn.six import iteritems
 
 
 def number_of_workers():
-        return (multiprocessing.cpu_count() * 2) + 1
+    return (multiprocessing.cpu_count() * 2) + 1
 
 
 class ApplicationServer(gunicorn.app.base.BaseApplication):
@@ -81,29 +80,26 @@ def run(workers):
 
     from pygeoapi.flask_app import APP, api_
 
-    if not api_.config['server']['pretty_print']:
-        APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-
-    if 'cors' in api_.config['server'] and api_.config['server']['cors']:
-        from flask_cors import CORS
-        CORS(APP)
-
     if not workers:
         workers = number_of_workers()
 
     options = {
         'bind': '%s:%s' % (api_.config['server']['bind']['host'],
                            api_.config['server']['bind']['port']),
-        'workers': workers,
-        'accesslog': '-',
-        'errorlog': '-',
-    }
+        'workers': workers
+        }
 
     if api_.config.get('logging', None) and \
        api_.config['logging'].get("level", None):
 
         log_level = api_.config["logging"]["level"]
         options["loglevel"] = log_level
+
+        options["accesslog"] = "-"
+
+        if log_level == "ERROR" or "CRITICAL":
+            options["errorlog"] = "-"
+
     else:
         log_level = None
 
