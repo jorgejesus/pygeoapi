@@ -46,7 +46,15 @@ if 'PYGEOAPI_CONFIG' not in os.environ:
     raise RuntimeError('PYGEOAPI_CONFIG environment variable not set')
 
 with open(os.environ.get('PYGEOAPI_CONFIG')) as fh:
-    CONFIG = yaml.load(fh)
+    CONFIG = yaml.load(fh, Loader=yaml.FullLoader)
+
+# CORS: optionally enable from config.
+if CONFIG['server'].get('cors', False):
+    from flask_cors import CORS
+    CORS(APP)
+
+APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = \
+    CONFIG['server'].get('pretty_print', True)
 
 api_ = API(CONFIG)
 
@@ -65,7 +73,7 @@ def root():
 @APP.route('/api')
 def api():
     with open(os.environ.get('PYGEOAPI_OPENAPI')) as ff:
-        openapi = yaml.load(ff)
+        openapi = yaml.load(ff, Loader=yaml.FullLoader)
 
     headers, status_code, content = api_.api(request.headers, request.args,
                                              openapi)
@@ -155,13 +163,6 @@ def execute_process(name=None):
 @click.option('--debug', '-d', default=False, is_flag=True, help='debug')
 def serve(ctx, debug=False):
     """Serve pygeoapi via Flask"""
-
-    if not api_.config['server']['pretty_print']:
-        APP.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-
-    if 'cors' in api_.config['server'] and api_.config['server']['cors']:
-        from flask_cors import CORS
-        CORS(APP)
 
 #    setup_logger(CONFIG['logging'])
     APP.run(debug=True, host=api_.config['server']['bind']['host'],
