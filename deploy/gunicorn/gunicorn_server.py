@@ -34,6 +34,7 @@ import click
 import multiprocessing
 import gunicorn.app.base
 from gunicorn.six import iteritems
+import sys
 
 
 def number_of_workers():
@@ -71,7 +72,7 @@ class ApplicationServer(gunicorn.app.base.BaseApplication):
 @click.command()
 @click.option('--workers', '-w', default=None, type=click.INT,
               help='Number of workers if not defined: (2*CPU)+1')
-def run(workers):
+def run_server(workers):
     """Serve pygeoapi via gunicorn. Using the default
     sync worker, 1 thread per worker and keep-alive of 2s
 
@@ -102,9 +103,12 @@ def run(workers):
 
     else:
         log_level = None
-
+    
+    # ERROR and CRITICAL don't report start of the server
+    sys.stdout.write("Starting gunicorn on {} \n".format(options['bind']))
+    sys.stdout.write("Number off workers {} \n".format(options['workers']))
     ApplicationServer(APP, options).run()
 
 
 if __name__ == '__main__':
-    run()
+    run_server()
