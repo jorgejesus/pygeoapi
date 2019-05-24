@@ -103,7 +103,7 @@ def run_server(workers):
 
     else:
         log_level = None
-    
+
     # ERROR and CRITICAL don't report start of the server
     sys.stdout.write("Starting gunicorn on {} \n".format(options['bind']))
     sys.stdout.write("Number off workers {} \n".format(options['workers']))
