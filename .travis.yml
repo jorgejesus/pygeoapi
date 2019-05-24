@@ -46,9 +46,9 @@ before_script:
 
 script:
   - pytest --cov=pygeoapi
-  - cd deploy/gunicorn/ ; pytest --cov=gunicorn ; cd -
   - find . -type f -name "*.py" | xargs flake8
   - python3 setup.py --long-description | rst2html5.py
+  - cd deploy/gunicorn/ ; pytest --cov=gunicorn ; cd -
 
 after_success:
   - python3 setup.py sdist bdist_wheel --universal
