@@ -82,7 +82,7 @@ def test_gunicorn(config, api_):
     p.start()
     time.sleep(2)
 
-    r = requests.get(os.path.join(url, "?f=html"))
+    r = requests.get(url)
     assert r.status_code == 200
 
     if cors:
