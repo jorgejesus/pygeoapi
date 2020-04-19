@@ -335,7 +335,6 @@ def get_oas_30(cfg):
                 }
             }
         }
-
         p = load_plugin('provider', cfg['datasets'][k]['provider'])
 
         if p.time_field is not None:

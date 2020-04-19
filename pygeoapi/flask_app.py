@@ -112,11 +112,14 @@ def openapi():
 
     :returns: HTTP response
     """
+    if 'PYGEOAPI_OPENAPI' not in os.environ:
+        raise RuntimeError('PYGEOAPI_OPENAPI environment variable not set')
+    
     with open(os.environ.get('PYGEOAPI_OPENAPI'), encoding='utf8') as ff:
         openapi = yaml_load(ff)
 
     headers, status_code, content = api_.openapi(request.headers, request.args,
-                                                 openapi)
+                                                 openapi,ui="redocs")
 
     response = make_response(content, status_code)
     if headers:

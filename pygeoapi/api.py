@@ -194,7 +194,7 @@ class API(object):
         return headers_, 200, json.dumps(fcm)
 
     @pre_process
-    def openapi(self, headers_, format_, openapi):
+    def openapi(self, headers_, format_, openapi,ui=None):
         """
         Provide OpenAPI document
 
@@ -206,7 +206,7 @@ class API(object):
 
         :returns: tuple of headers, status code, content
         """
-
+        LOGGER.debug("Value of ui variable is: {}".format(str(ui)))
         if format_ is not None and format_ not in FORMATS:
             exception = {
                 'code': 'InvalidParameterValue',
