@@ -82,7 +82,9 @@ def pre_process(func):
     def inner(*args, **kwargs):
         cls = args[0]
         headers_ = HEADERS.copy()
+        #{'Content-Type': 'application/json', 'X-Powered-By': 'pygeoapi 0.7.0'}
         format_ = check_format(args[2], args[1])
+        
         if len(args) > 3:
             args = args[3:]
             return func(cls, headers_, format_, *args, **kwargs)
@@ -194,7 +196,7 @@ class API(object):
         return headers_, 200, json.dumps(fcm)
 
     @pre_process
-    def openapi(self, headers_, format_, openapi,ui=None):
+    def openapi(self, headers_, format_, request,openapi):
         """
         Provide OpenAPI document
 
@@ -206,7 +208,8 @@ class API(object):
 
         :returns: tuple of headers, status code, content
         """
-        LOGGER.debug("Value of ui variable is: {}".format(str(ui)))
+        LOGGER.debug("Request is: {}".format(request))
+        
         if format_ is not None and format_ not in FORMATS:
             exception = {
                 'code': 'InvalidParameterValue',

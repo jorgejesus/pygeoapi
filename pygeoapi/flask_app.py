@@ -9,7 +9,7 @@
 # obtaining a copy of this software and associated documentation
 # files (the "Software"), to deal in the Software without
 # restriction, including without limitation the rights to use,
-# copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copy, modify, merge, publishhe distribute, sublicense, and/or sell
 # copies of the Software, and to permit persons to whom the
 # Software is furnished to do so, subject to the following
 # conditions:
@@ -118,8 +118,8 @@ def openapi():
     with open(os.environ.get('PYGEOAPI_OPENAPI'), encoding='utf8') as ff:
         openapi = yaml_load(ff)
 
-    headers, status_code, content = api_.openapi(request.headers, request.args,
-                                                 openapi,ui="redocs")
+    headers, status_code, content = api_.openapi(request.headers, request.args,request.args,
+                                                 openapi)
 
     response = make_response(content, status_code)
     if headers:
