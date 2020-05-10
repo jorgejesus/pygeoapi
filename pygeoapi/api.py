@@ -84,7 +84,8 @@ def pre_process(func):
         headers_ = HEADERS.copy()
         #{'Content-Type': 'application/json', 'X-Powered-By': 'pygeoapi 0.7.0'}
         format_ = check_format(args[2], args[1])
-        
+        #type(args[1])<class 'werkzeug.datastructures.EnvironHeaders'>
+          
         if len(args) > 3:
             args = args[3:]
             return func(cls, headers_, format_, *args, **kwargs)

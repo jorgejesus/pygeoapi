@@ -118,7 +118,7 @@ def openapi():
     with open(os.environ.get('PYGEOAPI_OPENAPI'), encoding='utf8') as ff:
         openapi = yaml_load(ff)
 
-    headers, status_code, content = api_.openapi(request.headers, request.args,request.args,
+    headers, status_code, content = api_.openapi(request.headers, request.args,
                                                  openapi)
 
     response = make_response(content, status_code)
