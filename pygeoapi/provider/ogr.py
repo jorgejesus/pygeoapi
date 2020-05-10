@@ -40,7 +40,8 @@ from osgeo import osr as osgeo_osr
 
 from pygeoapi.provider.base import (
     BaseProvider, ProviderGenericError,
-    ProviderQueryError, ProviderConnectionError)
+    ProviderQueryError, ProviderConnectionError,
+    ProviderItemNotFoundError)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -144,8 +145,8 @@ class OGRProvider(BaseProvider):
                                                 'EPSG:4326').split(':')[1])
 
         # Optional coordinate transformation inward (requests) and
-        # outward (responses) when the source layers and WFS3 collections
-        # differ in EPSG-codes.
+        # outward (responses) when the source layers and
+        # OGC API - Features collections differ in EPSG-codes.
         self.transform_in = None
         self.transform_out = None
         if self.source_srs != self.target_srs:
@@ -219,7 +220,7 @@ class OGRProvider(BaseProvider):
                     {}'.format(source_type)
                 LOGGER.error(msg)
                 # ignore errors for ESRIJSON not having geometry member
-                # see https://github.com/OSGeo/gdal/commit/38b0feed67f80ded32be6c508323d862e1a14474 # noqa 
+                # see https://github.com/OSGeo/gdal/commit/38b0feed67f80ded32be6c508323d862e1a14474 # noqa
                 self.conn = _ignore_gdal_error(
                     self.driver, 'Open', self.data_def['source'], 0)
         if not self.conn:
@@ -260,7 +261,14 @@ class OGRProvider(BaseProvider):
                 fieldName = field_defn.GetName()
                 fieldTypeCode = field_defn.GetType()
                 fieldType = field_defn.GetFieldTypeName(fieldTypeCode)
+
                 fields[fieldName] = fieldType.lower()
+
+                if fields[fieldName] == 'integer64':
+                    fields[fieldName] = 'integer'
+                elif fields[fieldName] == 'real':
+                    fields[fieldName] = 'number'
+
                 # fieldWidth = layer_defn.GetFieldDefn(fld).GetWidth()
                 # GetPrecision = layer_defn.GetFieldDefn(fld).GetPrecision()
 
@@ -370,7 +378,7 @@ class OGRProvider(BaseProvider):
             layer.SetAttributeFilter("{field} = '{id}'".format(
                 field=self.id_field, id=identifier))
 
-            ogr_feature = self._get_next_feature(layer)
+            ogr_feature = self._get_next_feature(layer, identifier)
             result = self._ogr_feature_to_json(ogr_feature)
 
         except RuntimeError as err:
@@ -379,6 +387,9 @@ class OGRProvider(BaseProvider):
         except ProviderConnectionError as err:
             LOGGER.error(err)
             raise ProviderConnectionError(err)
+        except ProviderItemNotFoundError as err:
+            LOGGER.error(err)
+            raise ProviderItemNotFoundError(err)
         except Exception as err:
             LOGGER.error(err)
             raise ProviderGenericError(err)
@@ -411,14 +422,19 @@ class OGRProvider(BaseProvider):
         class_ = getattr(module, classname)
         self.source_helper = class_(self)
 
-    def _get_next_feature(self, layer):
+    def _get_next_feature(self, layer, feature_id):
         try:
             # Ignore gdal error
             next_feature = _ignore_gdal_error(layer, 'GetNextFeature')
-            if all(val is None for val in next_feature.items().values()):
-                self.gdal.Error(
-                    self.gdal.CE_Failure, 1, "Object properties are all null"
-                )
+            if next_feature:
+                if all(val is None for val in next_feature.items().values()):
+                    self.gdal.Error(
+                        self.gdal.CE_Failure, 1,
+                        "Object properties are all null"
+                    )
+            else:
+                raise ProviderItemNotFoundError(
+                    "item {} not found".format(feature_id))
             return next_feature
         except RuntimeError as gdalerr:
             LOGGER.error(self.gdal.GetLastErrorMsg())

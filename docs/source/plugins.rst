@@ -54,12 +54,19 @@ The below template provides a minimal example (let's call the file ``mycooldata.
 
    class MyCoolDataProvider(BaseProvider):
        """My cool data provider"""
-      
+
        def __init__(self, provider_def):
            """Inherit from parent class"""
 
            BaseProvider.__init__(self, provider_def)
 
+       def get_fields(self):
+
+           # open dat file and return fields and their datatypes
+           return {
+               'field1': 'string',
+               'field2': 'string'
+           }
 
        def query(self, startindex=0, limit=10, resulttype='results',
                  bbox=[], datetime=None, properties=[], sortby=[]):

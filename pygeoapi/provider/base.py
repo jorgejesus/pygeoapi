@@ -32,7 +32,7 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
-class BaseProvider(object):
+class BaseProvider:
     """generic Provider ABC"""
 
     def __init__(self, provider_def):
@@ -131,6 +131,11 @@ class ProviderConnectionError(ProviderGenericError):
 
 
 class ProviderQueryError(ProviderGenericError):
+    """provider query error"""
+    pass
+
+
+class ProviderItemNotFoundError(ProviderGenericError):
     """provider query error"""
     pass
 

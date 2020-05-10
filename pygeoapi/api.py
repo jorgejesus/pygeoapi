@@ -46,9 +46,9 @@ from pygeoapi.log import setup_logger
 from pygeoapi.plugin import load_plugin, PLUGINS
 from pygeoapi.provider.base import (
     ProviderGenericError, ProviderConnectionError, ProviderNotFoundError,
-    ProviderQueryError)
-from pygeoapi.util import (dategetter, json_serial, render_j2_template,
-                           str2bool, TEMPLATES)
+    ProviderQueryError, ProviderItemNotFoundError)
+from pygeoapi.util import (dategetter, filter_dict_by_key_value, json_serial,
+                           render_j2_template, str2bool, TEMPLATES)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def pre_process(func):
     return inner
 
 
-class API(object):
+class API:
     """API object"""
 
     def __init__(self, config):
@@ -270,7 +270,7 @@ class API(object):
     @jsonldify
     def describe_collections(self, headers_, format_, dataset=None):
         """
-        Provide feature collection metadata
+        Provide collection metadata
 
         :param headers_: copy of HEADERS object
         :param format_: format of requests,
@@ -293,21 +293,22 @@ class API(object):
             'links': []
         }
 
-        if all([dataset is not None,
-                dataset not in self.config['datasets'].keys()]):
+        collections = filter_dict_by_key_value(self.config['resources'],
+                                               'type', 'collection')
 
+        if all([dataset is not None, dataset not in collections.keys()]):
             exception = {
                 'code': 'InvalidParameterValue',
-                'description': 'Invalid feature collection'
+                'description': 'Invalid collection'
             }
             LOGGER.error(exception)
             return headers_, 400, json.dumps(exception)
 
         LOGGER.debug('Creating collections')
-        for k, v in self.config['datasets'].items():
+        for k, v in collections.items():
             collection = {'links': []}
             collection['id'] = k
-            collection['itemType'] = 'feature'
+            collection['itemType'] = 'Feature'
             collection['title'] = v['title']
             collection['description'] = v['description']
             collection['keywords'] = v['keywords']
@@ -350,23 +351,38 @@ class API(object):
 
             LOGGER.debug('Adding JSON and HTML link relations')
             collection['links'].append({
+                'type': 'application/json',
+                'rel': 'queryables',
+                'title': 'Queryables for this collection as JSON',
+                'href': '{}/collections/{}/queryables?f=json'.format(
+                    self.config['server']['url'], k)
+            })
+            collection['links'].append({
+                'type': 'text/html',
+                'rel': 'queryables',
+                'title': 'Queryables for this collection as HTML',
+                'href': '{}/collections/{}/queryables?f=html'.format(
+                    self.config['server']['url'], k)
+            })
+
+            collection['links'].append({
                 'type': 'application/geo+json',
                 'rel': 'items',
-                'title': 'Features as GeoJSON',
+                'title': 'items as GeoJSON',
                 'href': '{}/collections/{}/items?f=json'.format(
                     self.config['server']['url'], k)
             })
             collection['links'].append({
                 'type': 'application/ld+json',
                 'rel': 'items',
-                'title': 'Features as RDF (GeoJSON-LD)',
+                'title': 'items as RDF (GeoJSON-LD)',
                 'href': '{}/collections/{}/items?f=jsonld'.format(
                     self.config['server']['url'], k)
             })
             collection['links'].append({
                 'type': 'text/html',
                 'rel': 'items',
-                'title': 'Features as HTML',
+                'title': 'Items as HTML',
                 'href': '{}/collections/{}/items?f=html'.format(
                     self.config['server']['url'], k)
             })
@@ -452,9 +468,89 @@ class API(object):
 
         return headers_, 200, json.dumps(fcm, default=json_serial)
 
+    @pre_process
+    @jsonldify
+    def get_collection_queryables(self, headers_, format_, dataset=None):
+        """
+        Provide collection queryables
+
+        :param headers_: copy of HEADERS object
+        :param format_: format of requests,
+                        pre checked by pre_process decorator
+        :param dataset: name of collection
+
+        :returns: tuple of headers, status code, content
+        """
+
+        if format_ is not None and format_ not in FORMATS:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid format'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, json.dumps(exception)
+
+        if any([dataset is None,
+                dataset not in self.config['resources'].keys()]):
+
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, json.dumps(exception)
+
+        LOGGER.debug('Creating collection queryables')
+        LOGGER.debug('Loading provider')
+        try:
+            p = load_plugin('provider',
+                            self.config['resources'][dataset]['provider'])
+        except ProviderConnectionError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'connection error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, json.dumps(exception)
+        except ProviderQueryError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'query error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, json.dumps(exception)
+
+        queryables = {
+            'queryables': []
+        }
+
+        for k, v in p.fields.items():
+            show_field = False
+            if p.properties:
+                if k in p.properties:
+                    show_field = True
+            else:
+                show_field = True
+
+            if show_field:
+                queryables['queryables'].append({
+                    'queryable': k,
+                    'type': v
+                })
+
+        if format_ == 'html':  # render
+            queryables['title'] = self.config['resources'][dataset]['title']
+            headers_['Content-Type'] = 'text/html'
+            content = render_j2_template(self.config, 'queryables.html',
+                                         queryables)
+
+            return headers_, 200, content
+
+        return headers_, 200, json.dumps(queryables, default=json_serial)
+
     def get_collection_items(self, headers, args, dataset, pathinfo=None):
         """
-        Queries feature collection
+        Queries collection
 
         :param headers: dict of HTTP headers
         :param args: dict of HTTP request parameters
@@ -472,10 +568,13 @@ class API(object):
         formats = FORMATS
         formats.extend(f.lower() for f in PLUGINS['formatter'].keys())
 
-        if dataset not in self.config['datasets'].keys():
+        collections = filter_dict_by_key_value(self.config['resources'],
+                                               'type', 'collection')
+
+        if dataset not in collections.keys():
             exception = {
                 'code': 'InvalidParameterValue',
-                'description': 'Invalid feature collection'
+                'description': 'Invalid collection'
             }
             LOGGER.error(exception)
             return headers_, 400, json.dumps(exception, default=json_serial)
@@ -574,8 +673,8 @@ class API(object):
         datetime_invalid = False
 
         if (datetime_ is not None and
-                'temporal' in self.config['datasets'][dataset]['extents']):
-            te = self.config['datasets'][dataset]['extents']['temporal']
+                'temporal' in collections[dataset]['extents']):
+            te = collections[dataset]['extents']['temporal']
 
             if te['begin'].tzinfo is None:
                 te['begin'] = te['begin'].replace(tzinfo=pytz.UTC)
@@ -629,7 +728,7 @@ class API(object):
         LOGGER.debug('Loading provider')
         try:
             p = load_plugin('provider',
-                            self.config['datasets'][dataset]['provider'])
+                            collections[dataset]['provider'])
         except ProviderConnectionError:
             exception = {
                 'code': 'NoApplicableCode',
@@ -778,7 +877,7 @@ class API(object):
         content['links'].append(
             {
                 'type': 'application/json',
-                'title': self.config['datasets'][dataset]['title'],
+                'title': collections[dataset]['title'],
                 'rel': 'collection',
                 'href': '{}/collections/{}'.format(
                     self.config['server']['url'], dataset)
@@ -815,7 +914,7 @@ class API(object):
                 data=content,
                 options={
                     'provider_def':
-                        self.config['datasets'][dataset]['provider']
+                        collections[dataset]['provider']
                 }
             )
 
@@ -836,13 +935,13 @@ class API(object):
     @pre_process
     def get_collection_item(self, headers_, format_, dataset, identifier):
         """
-        Get a single feature
+        Get a single collection item
 
         :param headers_: copy of HEADERS object
         :param format_: format of requests,
                         pre checked by pre_process decorator
         :param dataset: dataset name
-        :param identifier: feature identifier
+        :param identifier: item identifier
 
         :returns: tuple of headers, status code, content
         """
@@ -857,17 +956,19 @@ class API(object):
 
         LOGGER.debug('Processing query parameters')
 
-        if dataset not in self.config['datasets'].keys():
+        collections = filter_dict_by_key_value(self.config['resources'],
+                                               'type', 'collection')
+
+        if dataset not in collections.keys():
             exception = {
                 'code': 'InvalidParameterValue',
-                'description': 'Invalid feature collection'
+                'description': 'Invalid collection'
             }
             LOGGER.error(exception)
             return headers_, 400, json.dumps(exception)
 
         LOGGER.debug('Loading provider')
-        p = load_plugin('provider',
-                        self.config['datasets'][dataset]['provider'])
+        p = load_plugin('provider', collections[dataset]['provider'])
 
         try:
             LOGGER.debug('Fetching id {}'.format(identifier))
@@ -879,6 +980,13 @@ class API(object):
             }
             LOGGER.error(err)
             return headers_, 500, json.dumps(exception)
+        except ProviderItemNotFoundError:
+            exception = {
+                'code': 'NotFound',
+                'description': 'identifier not found'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, json.dumps(exception)
         except ProviderQueryError as err:
             exception = {
                 'code': 'NoApplicableCode',
@@ -923,7 +1031,7 @@ class API(object):
             }, {
             'rel': 'collection',
             'type': 'application/json',
-            'title': self.config['datasets'][dataset]['title'],
+            'title': collections[dataset]['title'],
             'href': '{}/collections/{}'.format(
                 self.config['server']['url'], dataset)
             }, {
@@ -942,7 +1050,7 @@ class API(object):
         if format_ == 'html':  # render
             headers_['Content-Type'] = 'text/html'
 
-            content['title'] = self.config['datasets'][dataset]['title']
+            content['title'] = collections[dataset]['title']
             content = render_j2_template(self.config, 'item.html',
                                          content)
             return headers_, 200, content
@@ -984,18 +1092,20 @@ class API(object):
             'links': []
         }
 
-        for key, value in self.config['datasets'].items():
-            if value['provider']['name'] == 'FileSystem':
-                content['links'].append({
-                    'rel': 'collection',
-                    'href': '{}/{}?f=json'.format(stac_url, key),
-                    'type': 'application/json'
-                })
-                content['links'].append({
-                    'rel': 'collection',
-                    'href': '{}/{}'.format(stac_url, key),
-                    'type': 'text/html'
-                })
+        stac_collections = filter_dict_by_key_value(self.config['resources'],
+                                                    'type', 'stac-collection')
+
+        for key, value in stac_collections.items():
+            content['links'].append({
+                'rel': 'collection',
+                'href': '{}/{}?f=json'.format(stac_url, key),
+                'type': 'application/json'
+            })
+            content['links'].append({
+                'rel': 'collection',
+                'href': '{}/{}'.format(stac_url, key),
+                'type': 'text/html'
+            })
 
         if format_ == 'html':  # render
             headers_['Content-Type'] = 'text/html'
@@ -1022,7 +1132,10 @@ class API(object):
         if dir_tokens:
             dataset = dir_tokens[0]
 
-        if dataset not in self.config['datasets']:
+        stac_collections = filter_dict_by_key_value(self.config['resources'],
+                                                    'type', 'stac-collection')
+
+        if dataset not in stac_collections:
             exception = {
                 'code': 'NotFound',
                 'description': 'collection not found'
@@ -1032,8 +1145,7 @@ class API(object):
 
         LOGGER.debug('Loading provider')
         try:
-            p = load_plugin('provider',
-                            self.config['datasets'][dataset]['provider'])
+            p = load_plugin('provider', stac_collections[dataset]['provider'])
         except ProviderConnectionError as err:
             LOGGER.error(err)
             exception = {
@@ -1045,7 +1157,7 @@ class API(object):
 
         id_ = '{}-stac'.format(dataset)
         stac_version = '0.6.2'
-        description = self.config['datasets'][dataset]['description']
+        description = stac_collections[dataset]['description']
 
         content = {
             'id': id_,
@@ -1076,7 +1188,7 @@ class API(object):
 
         if isinstance(stac_data, dict):
             content.update(stac_data)
-            content['links'].extend(self.config['datasets'][dataset]['links'])
+            content['links'].extend(stac_collections[dataset]['links'])
 
             if format_ == 'html':  # render
                 headers_['Content-Type'] = 'text/html'
@@ -1119,7 +1231,8 @@ class API(object):
             LOGGER.error(exception)
             return headers_, 400, json.dumps(exception)
 
-        processes_config = self.config.get('processes', {})
+        processes_config = filter_dict_by_key_value(self.config['resources'],
+                                                    'type', 'process')
 
         if processes_config:
             if process is not None:
@@ -1190,7 +1303,8 @@ class API(object):
             LOGGER.error(exception)
             return headers_, 400, json.dumps(exception)
 
-        processes = self.config.get('processes', {})
+        processes = filter_dict_by_key_value(self.config['resources'],
+                                             'type', 'process')
 
         if process not in processes:
             exception = {

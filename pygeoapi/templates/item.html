@@ -2,9 +2,7 @@
 {# Optionally renders an img element, otherwise standard value or link rendering #}
 {% macro render_item_value(v, width) -%}
     {% set val = v | string | trim | lower %}
-    {% if val|length and
-      (val.endswith(".jpg") or val.endswith(".jpeg") or val.endswith(".png") or val.endswith(".gif") or val.endswith(".bmp"))
-    %}
+    {% if val|length and val.endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp')) %}
         {# Ends with image extension: render img element with link to image #}
         <a href="{{ val }}"><img src="{{ val }}" alt="" width="{{ width }}"/></a>
     {% else %}
@@ -13,13 +11,13 @@
     {% endif %}
 {%- endmacro %}
 {% block title %}{{ super() }} {{ data['title'] }} - {{ data['id'] }}{% endblock %}
-{% block crumbs %}{{ super() }} 
+{% block crumbs %}{{ super() }}
 / <a href="../../../collections">Collections</a>
 {% for link in data['links'] %}
   {% if link.rel == 'collection' %}
 /  <a href="{{ link['href'] }}">{{ link['title'] }}</a>
   {% endif %}
-{% endfor %}     
+{% endfor %}
 / <a href="../items">Items</a>
 / <a href="./{{ data['id'] }}">Item {{ data['id'] }}</a>
 {% endblock %}
