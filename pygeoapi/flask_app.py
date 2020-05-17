@@ -96,7 +96,7 @@ def root():
 
     :returns: HTTP response
     """
-    headers, status_code, content = api_.root(request.headers, request.args)
+    headers, status_code, content = api_.root(headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -119,8 +119,8 @@ def openapi():
     with open(os.environ.get('PYGEOAPI_OPENAPI'), encoding='utf8') as ff:
         openapi = yaml_load(ff)
 
-    headers, status_code, content = api_.openapi(request.headers, request.args,
-                                                 openapi)
+   
+    headers, status_code, content = api_.openapi(openapi,headers_ = request.headers, args_=request.args)
 
     response = make_response(content, status_code)
 
@@ -138,8 +138,7 @@ def conformance():
     :returns: HTTP response
     """
 
-    headers, status_code, content = api_.conformance(request.headers,
-                                                     request.args)
+    headers, status_code, content = api_.conformance(headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -161,7 +160,7 @@ def describe_collections(name=None):
     """
 
     headers, status_code, content = api_.describe_collections(
-        request.headers, request.args, name)
+        headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -181,8 +180,7 @@ def get_collection_queryables(name=None):
     :returns: HTTP response
     """
 
-    headers, status_code, content = api_.get_collection_queryables(
-        request.headers, request.args, name)
+    headers, status_code, content = api_.get_collection_queryables(name,headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -203,10 +201,10 @@ def dataset(collection_id, item_id=None):
 
     if item_id is None:
         headers, status_code, content = api_.get_collection_items(
-            request.headers, request.args, collection_id)
+            collection_id,headers_ = request.headers, args_ = request.args)
     else:
         headers, status_code, content = api_.get_collection_item(
-            request.headers, request.args, collection_id, item_id)
+            collection_id, item_id,headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -225,7 +223,7 @@ def stac_catalog_root():
     """
 
     headers, status_code, content = api_.get_stac_root(
-        request.headers, request.args)
+        headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -244,7 +242,7 @@ def stac_catalog_path(path):
     """
 
     headers, status_code, content = api_.get_stac_path(
-        request.headers, request.args, path)
+        path,headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -264,7 +262,7 @@ def describe_processes(name=None):
     :returns: HTTP response
     """
     headers, status_code, content = api_.describe_processes(
-        request.headers, request.args, name)
+        name,headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 
@@ -287,7 +285,7 @@ def execute_process(name=None):
         headers, status_code, content = ({}, 200, "[]")
     elif request.method == 'POST':
         headers, status_code, content = api_.execute_process(
-            request.headers, request.args, request.data, name)
+            request.data, name,headers_ = request.headers, args_ = request.args)
 
     response = make_response(content, status_code)
 

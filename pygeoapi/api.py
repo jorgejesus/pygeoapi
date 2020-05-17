@@ -70,77 +70,15 @@ CONFORMANCE = [
     'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson'
 ]
 
-
-# def pre_process(func):
-#     """
-#         Decorator performing header copy and format\
-#         checking before sending arguments to methods
-# 
-#         :param func: decorated function
-# 
-#         :returns: `func`
-#     """
-# 
-#     @functools.wraps(func)
-#     def wrapper_decorator(*args, **kwargs):
-#         args2 = list(args)
-#         args2.pop(1)
-#         args2.pop(1)
-#         args2.insert(1, check_format(args[2], args[1]))  # add format
-#         args2.insert(1, HEADERS.copy())  # add headers
-#         args2.insert(3, args[2])
-#         value = func(*args2)
-#         return value
-#     return wrapper_decorator
-
 def pre_process(func):
-    """
-        Decorator performing header copy and format\
-        checking before sending arguments to methods
-
-        :param func: decorated function
-
-        :returns: `func`
-    """
-
-    def inner(*args, **kwargs):
-        cls = args[0]
-        headers_ = HEADERS.copy()
-        
-        format_ = check_format(args[2], args[1])
-        request_ = args[2]
-        args = args[3:]
-        
-        tmp={"headers_":headers_,"format_":format_,"request_":request_}
-        #kwargs["headers_"]=headers_
-        #kwargs["format_"]=format_
-        #kwargs["request_"]=request_
-        
-        sig=inspect.signature(func)
-        sig.parameters.keys() #odict_keys(['self', 'openapi', 'request_'])
-        func_keys=set(
-            param.name
-            for param in sig.parameters.values()
-            if param.kind == param.POSITIONAL_OR_KEYWORD
-        ) #{'self', 'request_', 'openapi'}
-        #[item for item in set(tmp.keys()).intersection(func_keys)]
-        [kwargs.__setitem__(key,tmp[key]) for key in func_keys if key in ["headers_","format_","request_"]]
-        
-        #<Signature (self, openapi, request_=None)>
-        #<Signature (self, openapi, request_=None)>
-        
-        return func(cls, *args, **kwargs)
-        #def openapi(self, headers_, format_, request_,openapi)
-        
-        #type(args[1])<class 'werkzeug.datastructures.EnvironHeaders'>
-        #headers, request_args, path_params 
-        #if len(args) > 3:
-        #    args = args[3:]
-        #    return func(cls, headers_, format_, request_, *args, **kwargs)
-        #else:
-        #    return func(cls, headers_, format_, request_)
-
-    return inner
+    @functools.wraps(func) 
+    def wrapper_pre_process(*args, **kwargs):
+ 
+        kwargs["format_"] = check_format(kwargs["args_"],kwargs["headers_"])
+        kwargs["headers_"] = HEADERS.copy()
+        return func(*args,**kwargs)
+      
+    return wrapper_pre_process
 
 
 class API:
@@ -165,7 +103,8 @@ class API:
 
     @pre_process
     @jsonldify
-    def root(self, * headers_, format_):
+    def root(self, headers_ = None, args_ = None,format_ = None):
+    #def root(self, headers_ = None, args_ = None, format_ = None):
         """
         Provide API
 
@@ -245,7 +184,7 @@ class API:
         return headers_, 200, json.dumps(fcm)
 
     @pre_process
-    def openapi(self, openapi,request_= None, headers_= None, format_=None):
+    def openapi(self, openapi, headers_ = None, args_= None, format_= None):
         """
         Provide OpenAPI document
 
@@ -253,11 +192,12 @@ class API:
         :param headers_: copy of HEADERS object
         :param format_: format of requests, pre checked by
                         pre_process decorator
+        :param path_params_: paths parameters of url request
         :param openapi: dict of OpenAPI definition
 
         :returns: tuple of headers, status code, content
         """
-        LOGGER.debug("Request is: {}".format(request_))
+        LOGGER.debug("Request is: {}".format(args_))
         
         if format_ is not None and format_ not in FORMATS:
             exception = {
@@ -283,7 +223,8 @@ class API:
         return headers_, 200, json.dumps(openapi)
 
     @pre_process
-    def conformance(self, headers_, format_):
+    def conformance(self, headers_ = None,args_ = None, format_ = None):
+        
         """
         Provide conformance definition
 
@@ -316,7 +257,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def describe_collections(self, headers_, format_, dataset=None):
+    def describe_collections(self, dataset=None, headers_ = None,args_ = None, format_ = None ):
         """
         Provide collection metadata
 
@@ -518,7 +459,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def get_collection_queryables(self, headers_, format_, dataset=None):
+    def get_collection_queryables(self, dataset=None, headers_ = None, args_ = None, format_ = None ):
         """
         Provide collection queryables
 
@@ -596,6 +537,7 @@ class API:
 
         return headers_, 200, json.dumps(queryables, default=json_serial)
 
+    #headers_ = None, args_ = None, format_ = None
     def get_collection_items(self, headers, args, dataset, pathinfo=None):
         """
         Queries collection
@@ -981,7 +923,7 @@ class API:
         return headers_, 200, json.dumps(content, default=json_serial)
 
     @pre_process
-    def get_collection_item(self, headers_, format_, dataset, identifier):
+    def get_collection_item(self, dataset, identifier,headers_ = None, args_ = None, format_ = None):
         """
         Get a single collection item
 
@@ -1113,7 +1055,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def get_stac_root(self, headers_, format_):
+    def get_stac_root(self, headers_ = None, args_ = None, format_ = None):
 
         if format_ is not None and format_ not in FORMATS:
             exception = {
@@ -1165,7 +1107,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def get_stac_path(self, headers_, format_, path):
+    def get_stac_path(self, path, headers_ = None, args_ = None, format_ = None ):
 
         if format_ is not None and format_ not in FORMATS:
             exception = {
@@ -1260,7 +1202,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def describe_processes(self, headers_, format_, process=None):
+    def describe_processes(self, process=None,headers_ = None, args_ = None, format_ = None):
         """
         Provide processes metadata
 
