@@ -31,10 +31,12 @@ Returns content from plugins and sets reponses
 """
 
 from datetime import datetime
+import inspect
 import json
 import logging
 import os
 import urllib.parse
+import functools
 
 from dateutil.parser import parse as dateparse
 import pytz
@@ -69,6 +71,28 @@ CONFORMANCE = [
 ]
 
 
+# def pre_process(func):
+#     """
+#         Decorator performing header copy and format\
+#         checking before sending arguments to methods
+# 
+#         :param func: decorated function
+# 
+#         :returns: `func`
+#     """
+# 
+#     @functools.wraps(func)
+#     def wrapper_decorator(*args, **kwargs):
+#         args2 = list(args)
+#         args2.pop(1)
+#         args2.pop(1)
+#         args2.insert(1, check_format(args[2], args[1]))  # add format
+#         args2.insert(1, HEADERS.copy())  # add headers
+#         args2.insert(3, args[2])
+#         value = func(*args2)
+#         return value
+#     return wrapper_decorator
+
 def pre_process(func):
     """
         Decorator performing header copy and format\
@@ -82,15 +106,39 @@ def pre_process(func):
     def inner(*args, **kwargs):
         cls = args[0]
         headers_ = HEADERS.copy()
-        #{'Content-Type': 'application/json', 'X-Powered-By': 'pygeoapi 0.7.0'}
+        
         format_ = check_format(args[2], args[1])
+        request_ = args[2]
+        args = args[3:]
+        
+        tmp={"headers_":headers_,"format_":format_,"request_":request_}
+        #kwargs["headers_"]=headers_
+        #kwargs["format_"]=format_
+        #kwargs["request_"]=request_
+        
+        sig=inspect.signature(func)
+        sig.parameters.keys() #odict_keys(['self', 'openapi', 'request_'])
+        func_keys=set(
+            param.name
+            for param in sig.parameters.values()
+            if param.kind == param.POSITIONAL_OR_KEYWORD
+        ) #{'self', 'request_', 'openapi'}
+        #[item for item in set(tmp.keys()).intersection(func_keys)]
+        [kwargs.__setitem__(key,tmp[key]) for key in func_keys if key in ["headers_","format_","request_"]]
+        
+        #<Signature (self, openapi, request_=None)>
+        #<Signature (self, openapi, request_=None)>
+        
+        return func(cls, *args, **kwargs)
+        #def openapi(self, headers_, format_, request_,openapi)
+        
         #type(args[1])<class 'werkzeug.datastructures.EnvironHeaders'>
-          
-        if len(args) > 3:
-            args = args[3:]
-            return func(cls, headers_, format_, *args, **kwargs)
-        else:
-            return func(cls, headers_, format_)
+        #headers, request_args, path_params 
+        #if len(args) > 3:
+        #    args = args[3:]
+        #    return func(cls, headers_, format_, request_, *args, **kwargs)
+        #else:
+        #    return func(cls, headers_, format_, request_)
 
     return inner
 
@@ -117,7 +165,7 @@ class API:
 
     @pre_process
     @jsonldify
-    def root(self, headers_, format_):
+    def root(self, * headers_, format_):
         """
         Provide API
 
@@ -197,7 +245,7 @@ class API:
         return headers_, 200, json.dumps(fcm)
 
     @pre_process
-    def openapi(self, headers_, format_, request,openapi):
+    def openapi(self, openapi,request_= None, headers_= None, format_=None):
         """
         Provide OpenAPI document
 
@@ -209,7 +257,7 @@ class API:
 
         :returns: tuple of headers, status code, content
         """
-        LOGGER.debug("Request is: {}".format(request))
+        LOGGER.debug("Request is: {}".format(request_))
         
         if format_ is not None and format_ not in FORMATS:
             exception = {
