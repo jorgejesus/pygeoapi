@@ -227,7 +227,13 @@ def render_j2_template(config, template, data):
     :returns: string of rendered template
     """
 
-    env = Environment(loader=FileSystemLoader(TEMPLATES))
+    try:
+        templates_path = config['server']['templates']['path']
+        env = Environment(loader=FileSystemLoader(templates_path))
+        LOGGER.debug('using custom templates: {}'.format(templates_path))
+    except (KeyError, TypeError):
+        env = Environment(loader=FileSystemLoader(TEMPLATES))
+        LOGGER.debug('using default templates: {}'.format(TEMPLATES))
 
     env.filters['to_json'] = to_json
     env.globals.update(to_json=to_json)
@@ -296,6 +302,20 @@ def filter_dict_by_key_value(dict_, key, value):
     """
 
     return {k: v for (k, v) in dict_.items() if v[key] == value}
+
+
+def filter_providers_by_type(providers, type):
+    """
+    helper function to filter a list of providers by type
+
+    :param providers: ``list``
+    :param type: str
+
+    :returns: filtered ``dict`` provider
+    """
+
+    providers_ = {provider['type']: provider for provider in providers}
+    return providers_.get(type, None)
 
 
 def get_provider_by_type(providers, provider_type):

@@ -1,8 +1,10 @@
 # =================================================================
 #
 # Authors: Tom Kralidis <tomkralidis@gmail.com>
+#          Francesco Bartoli <xbartolone@gmail.com>
 #
 # Copyright (c) 2020 Tom Kralidis
+# Copyright (c) 2020 Francesco Bartoli
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation
@@ -50,10 +52,13 @@ from pygeoapi.provider.base import (
     ProviderInvalidQueryError, ProviderNoDataError, ProviderQueryError,
     ProviderItemNotFoundError, ProviderTypeError)
 
+from pygeoapi.provider.tile import (ProviderTileNotFoundError,
+                                    ProviderTileQueryError,
+                                    ProviderTilesetIdNotFoundError)
 from pygeoapi.util import (dategetter, filter_dict_by_key_value,
                            get_provider_by_type, get_provider_default,
-                           get_typed_value, render_j2_template,
-                           TEMPLATES, to_json)
+                           get_typed_value, render_j2_template, TEMPLATES,
+                           to_json)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -74,6 +79,8 @@ CONFORMANCE = [
     'http://www.opengis.net/spec/ogcapi_coverages-1/1.0/conf/core',
     'http://www.opengis.net/spec/ogcapi-coverages-1/1.0/conf/oas30',
     'http://www.opengis.net/spec/ogcapi-coverages-1/1.0/conf/html'
+    'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/req/core',
+    'http://www.opengis.net/spec/ogcapi-tiles-1/1.0/req/collections'
 ]
 
 OGC_RELTYPES_BASE = 'http://www.opengis.net/def/rel/ogc/1.0'
@@ -441,6 +448,7 @@ class API:
                     'href': '{}/collections/{}/items?f=html'.format(
                         self.config['server']['url'], k)
                 })
+
             elif collection_data_type == 'coverage':
                 LOGGER.debug('Adding coverage based links')
                 collection['links'].append({
@@ -503,13 +511,44 @@ class API:
                     })
                 if dataset is not None:
                     LOGGER.debug('Creating extended coverage metadata')
-                    p = load_plugin('provider', get_provider_by_type(
-                        self.config['resources'][dataset]['providers'],
-                        'coverage'))
+                    try:
+                        p = load_plugin('provider', get_provider_by_type(
+                            self.config['resources'][dataset]['providers'],
+                            'coverage'))
+                    except ProviderConnectionError:
+                        exception = {
+                           'code': 'NoApplicableCode',
+                           'description': 'connection error (check logs)'
+                        }
+                        LOGGER.error(exception)
+                        return headers_, 500, to_json(exception,
+                                                      self.pretty_print)
 
                     collection['crs'] = [p.crs]
                     collection['domainset'] = p.get_coverage_domainset()
                     collection['rangetype'] = p.get_coverage_rangetype()
+
+            try:
+                tile = get_provider_by_type(v['providers'], 'tile')
+            except ProviderTypeError:
+                tile = None
+
+            if tile:
+                LOGGER.debug('Adding tile links')
+                collection['links'].append({
+                    'type': 'application/json',
+                    'rel': 'tiles',
+                    'title': 'Tiles as JSON',
+                    'href': '{}/collections/{}/tiles?f=json'.format(
+                        self.config['server']['url'], k)
+                })
+                collection['links'].append({
+                    'type': 'text/html',
+                    'rel': 'tiles',
+                    'title': 'Tiles as HTML',
+                    'href': '{}/collections/{}/tiles?f=html'.format(
+                        self.config['server']['url'], k)
+                })
 
             if dataset is not None and k == dataset:
                 fcm = collection
@@ -1183,7 +1222,7 @@ class API:
         return headers_, 200, to_json(content, self.pretty_print)
 
     @jsonldify
-    def get_collection_coverage(self, headers_, args, dataset,
+    def get_collection_coverage(self, headers, args, dataset,
                                 pathinfo=None):
         """
         Returns a subset of a collection coverage
@@ -1196,6 +1235,7 @@ class API:
         :returns: tuple of headers, status code, content
         """
 
+        headers_ = HEADERS.copy()
         query_args = {}
         format_ = 'json'
 
@@ -1209,14 +1249,20 @@ class API:
                 self.config['resources'][dataset]['providers'], 'coverage')
 
             p = load_plugin('provider', collection_def)
+        except KeyError:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'collection does not exist'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, to_json(exception, self.pretty_print)
         except ProviderTypeError:
             exception = {
                 'code': 'NoApplicableCode',
                 'description': 'invalid provider type'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'}, 400,
-                    to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
         except ProviderConnectionError:
             exception = {
                 'code': 'NoApplicableCode',
@@ -1241,11 +1287,10 @@ class API:
                         'description': 'Invalid field specified'
                     }
                     LOGGER.error(exception)
-                    return ({'Content-type': 'application/json'}, 400,
-                            to_json(exception, self.pretty_print))
+                    return headers_, 400, to_json(exception, self.pretty_print)
 
         if 'subset' in args:
-            LOGGER.debug('Processing subset parameters')
+            LOGGER.debug('Processing subset parameter')
             for s in args['subset'].split(','):
                 try:
                     if '"' not in s:
@@ -1261,8 +1306,8 @@ class API:
                             'description': 'Invalid axis name'
                         }
                         LOGGER.error(exception)
-                        return ({'Content-type': 'application/json'}, 400,
-                                to_json(exception, self.pretty_print))
+                        return (headers_, 400, to_json(exception,
+                                self.pretty_print))
 
                     subsets[subset_name] = list(map(
                         get_typed_value, m.group(2, 3)))
@@ -1286,43 +1331,40 @@ class API:
                 'description': 'query error: {}'.format(err),
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'},
-                    400, to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
         except ProviderNoDataError:
             exception = {
                 'code': 'NoApplicableCode',
                 'description': 'No data found'
             }
             LOGGER.debug(exception)
-            return ({'Content-type': 'application/json'},
-                    204, to_json(exception, self.pretty_print))
+            return headers_, 204, to_json(exception, self.pretty_print)
         except ProviderQueryError:
             exception = {
                 'code': 'NoApplicableCode',
                 'description': 'query error (check logs)'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'},
-                    500, to_json(exception, self.pretty_print))
+            return headers_, 500, to_json(exception, self.pretty_print)
 
         mt = collection_def['format']['name']
 
         if format_ == mt:
-            return ({'Content-type': mt}, 200, data)
+            headers_['Content-Type'] = collection_def['format']['mimetype']
+            return headers_, 200, data
         elif format_ == 'json':
-            return ({'Content-type': 'application/prs.coverage+json'},
-                    200, to_json(data, self.pretty_print))
+            headers_['Content-Type'] = 'application/prs.coverage+json'
+            return headers_, 200, to_json(data, self.pretty_print)
         else:
             exception = {
                 'code': 'InvalidParameterValue',
                 'description': 'invalid format parameter'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'},
-                    400, to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(data, self.pretty_print)
 
     @jsonldify
-    def get_collection_coverage_domainset(self, headers_, args, dataset,
+    def get_collection_coverage_domainset(self, headers, args, dataset,
                                           pathinfo=None):
         """
         Returns a collection coverage domainset
@@ -1335,7 +1377,9 @@ class API:
         :returns: tuple of headers, status code, content
         """
 
-        format_ = check_format(args, headers_)
+        headers_ = HEADERS.copy()
+
+        format_ = check_format(args, headers)
         if format_ is None:
             format_ = 'json'
 
@@ -1347,14 +1391,20 @@ class API:
             p = load_plugin('provider', collection_def)
 
             data = p.get_coverage_domainset()
+        except KeyError:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'collection does not exist'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, to_json(exception, self.pretty_print)
         except ProviderTypeError:
             exception = {
                 'code': 'NoApplicableCode',
                 'description': 'invalid provider type'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'}, 400,
-                    to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
         except ProviderConnectionError:
             exception = {
                 'code': 'NoApplicableCode',
@@ -1364,25 +1414,24 @@ class API:
             return headers_, 500, to_json(exception, self.pretty_print)
 
         if format_ == 'json':
-            return ({'Content-type': 'application/json'},
-                    200, to_json(data, self.pretty_print))
+            return headers_, 200, to_json(data, self.pretty_print)
         elif format_ == 'html':
             data['id'] = dataset
             data['title'] = self.config['resources'][dataset]['title']
             content = render_j2_template(self.config, 'domainset.html',
                                          data)
-            return {'Content-type': 'text/html'}, 200, content
+            headers_['Content-Type'] = 'text/html'
+            return headers_, 200, content
         else:
             exception = {
                 'code': 'InvalidParameterValue',
                 'description': 'invalid format parameter'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'},
-                    400, to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
 
     @jsonldify
-    def get_collection_coverage_rangetype(self, headers_, args, dataset,
+    def get_collection_coverage_rangetype(self, headers, args, dataset,
                                           pathinfo=None):
         """
         Returns a collection coverage rangetype
@@ -1395,7 +1444,8 @@ class API:
         :returns: tuple of headers, status code, content
         """
 
-        format_ = check_format(args, headers_)
+        headers_ = HEADERS.copy()
+        format_ = check_format(args, headers)
         if format_ is None:
             format_ = 'json'
 
@@ -1407,14 +1457,20 @@ class API:
             p = load_plugin('provider', collection_def)
 
             data = p.get_coverage_rangetype()
+        except KeyError:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'collection does not exist'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, to_json(exception, self.pretty_print)
         except ProviderTypeError:
             exception = {
                 'code': 'NoApplicableCode',
                 'description': 'invalid provider type'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'}, 400,
-                    to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
         except ProviderConnectionError:
             exception = {
                 'code': 'NoApplicableCode',
@@ -1424,22 +1480,340 @@ class API:
             return headers_, 500, to_json(exception, self.pretty_print)
 
         if format_ == 'json':
-            return ({'Content-type': 'application/json'},
-                    200, to_json(data, self.pretty_print))
+            return (headers_, 200, to_json(data, self.pretty_print))
         elif format_ == 'html':
             data['id'] = dataset
             data['title'] = self.config['resources'][dataset]['title']
             content = render_j2_template(self.config, 'rangetype.html',
                                          data)
-            return {'Content-type': 'text/html'}, 200, content
+            headers_['Content-Type'] = 'text/html'
+            return headers_, 200, content
         else:
             exception = {
                 'code': 'InvalidParameterValue',
                 'description': 'invalid format parameter'
             }
             LOGGER.error(exception)
-            return ({'Content-type': 'application/json'},
-                    400, to_json(exception, self.pretty_print))
+            return headers_, 400, to_json(exception, self.pretty_print)
+
+    @pre_process
+    @jsonldify
+    def get_collection_tiles(self, headers_, format_, dataset=None):
+        """
+        Provide collection tiles
+
+        :param headers_: copy of HEADERS object
+        :param format_: format of requests,
+                        pre checked by pre_process decorator
+        :param dataset: name of collection
+
+        :returns: tuple of headers, status code, content
+        """
+
+        if format_ is not None and format_ not in FORMATS:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid format'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, json.dumps(exception)
+
+        if any([dataset is None,
+                dataset not in self.config['resources'].keys()]):
+
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, json.dumps(exception)
+
+        LOGGER.debug('Creating collection tiles')
+        LOGGER.debug('Loading provider')
+        try:
+            t = get_provider_by_type(
+                    self.config['resources'][dataset]['providers'], 'tile')
+            p = load_plugin('provider', t)
+        except (KeyError, ProviderTypeError):
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection tiles'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception)
+        except ProviderConnectionError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'connection error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, to_json(exception)
+        except ProviderQueryError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'query error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, to_json(exception)
+
+        tiles = {
+            'title': dataset,
+            'description': self.config['resources'][dataset]['description'],
+            'links': [],
+            'tileMatrixSetLinks': []
+        }
+
+        tiles['links'].append({
+            'type': 'application/json',
+            'rel': 'self' if format_ == 'json' else 'alternate',
+            'title': 'This document as JSON',
+            'href': '{}/collections/{}/tiles?f=json'.format(
+                self.config['server']['url'], dataset)
+        })
+        tiles['links'].append({
+            'type': 'application/ld+json',
+            'rel': 'self' if format_ == 'jsonld' else 'alternate',
+            'title': 'This document as RDF (JSON-LD)',
+            'href': '{}/collections/{}/tiles?f=jsonld'.format(
+                self.config['server']['url'], dataset)
+        })
+        tiles['links'].append({
+            'type': 'text/html',
+            'rel': 'self' if format_ == 'html' else 'alternate',
+            'title': 'This document as HTML',
+            'href': '{}/collections/{}/tiles?f=html'.format(
+                self.config['server']['url'], dataset)
+        })
+
+        for service in p.get_tiles_service(
+            baseurl=self.config['server']['url'],
+            servicepath='/collections/{}/\
+tiles/{{{}}}/{{{}}}/{{{}}}/{{{}}}?f=mvt'
+            .format(dataset, 'tileMatrixSetId',
+                    'tileMatrix', 'tileRow', 'tileCol'))['links']:
+            tiles['links'].append(service)
+
+        tiles['tileMatrixSetLinks'] = p.get_tiling_schemes()
+        metadata_format = p.options['metadata_format']
+
+        if format_ == 'html':  # render
+            tiles['id'] = dataset
+            tiles['title'] = self.config['resources'][dataset]['title']
+            tiles['tilesets'] = [
+                scheme['tileMatrixSet'] for scheme in p.get_tiling_schemes()]
+            tiles['format'] = metadata_format
+            tiles['bounds'] = \
+                self.config['resources'][dataset]['extents']['spatial']['bbox']
+            tiles['minzoom'] = p.options['zoom']['min']
+            tiles['maxzoom'] = p.options['zoom']['max']
+
+            headers_['Content-Type'] = 'text/html'
+            content = render_j2_template(self.config, 'tiles.html', tiles)
+
+            return headers_, 200, content
+
+        return headers_, 200, to_json(tiles, self.pretty_print)
+
+    @jsonldify
+    def get_collection_tiles_data(self, headers, format_, dataset=None,
+                                  matrix_id=None, z_idx=None, y_idx=None,
+                                  x_idx=None):
+        """
+        Get collection items tiles
+
+        :param headers: copy of HEADERS object
+        :param format_: format of requests,
+                        pre checked by pre_process decorator
+        :param dataset: dataset name
+        :param matrix_id: matrix identifier
+        :param z_idx: z index
+        :param y_idx: y index
+        :param x_idx: x index
+
+        :returns: tuple of headers, status code, content
+        """
+
+        headers_ = HEADERS.copy()
+#        format_ = check_format({}, headers)
+
+        if format_ is None and format_ not in ['mvt']:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid format'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception)
+
+        LOGGER.debug('Processing tiles')
+
+        collections = filter_dict_by_key_value(self.config['resources'],
+                                               'type', 'collection')
+
+        if dataset not in collections.keys():
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception)
+
+        LOGGER.debug('Loading tile provider')
+        try:
+            t = get_provider_by_type(
+                self.config['resources'][dataset]['providers'], 'tile')
+            p = load_plugin('provider', t)
+
+            format_ = p.format_type
+            headers_['Content-Type'] = format_
+
+            LOGGER.debug('Fetching tileset id {} and tile {}/{}/{}'.format(
+                matrix_id, z_idx, y_idx, x_idx))
+            content = p.get_tiles(layer=p.get_layer(), tileset=matrix_id,
+                                  z=z_idx, y=y_idx, x=x_idx, format_=format_)
+            if content is None:
+                exception = {
+                    'code': 'NotFound',
+                    'description': 'identifier not found'
+                }
+                LOGGER.error(exception)
+                return headers_, 404, to_json(exception)
+            else:
+                return headers_, 202, content
+        # @TODO: figure out if the spec requires to return json errors
+        except KeyError:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection tiles'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception)
+        except ProviderConnectionError as err:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'connection error (check logs)'
+            }
+            LOGGER.error(err)
+            return headers_, 500, to_json(exception)
+        except ProviderTilesetIdNotFoundError:
+            exception = {
+                'code': 'NotFound',
+                'description': 'Tileset id not found'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, to_json(exception)
+        except ProviderTileQueryError as err:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'Tile not found'
+            }
+            LOGGER.error(err)
+            return headers_, 500, to_json(exception)
+        except ProviderTileNotFoundError as err:
+            exception = {
+                'code': 'NoMatch',
+                'description': 'tile not found (check logs)'
+            }
+            LOGGER.error(err)
+            return headers_, 404, to_json(exception)
+        except ProviderGenericError as err:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'generic error (check logs)'
+            }
+            LOGGER.error(err)
+            return headers_, 500, to_json(exception)
+
+    @pre_process
+    @jsonldify
+    def get_collection_tiles_metadata(self, headers_, format_, dataset=None,
+                                      matrix_id=None):
+        """
+        Get collection items tiles
+
+        :param headers_: copy of HEADERS object
+        :param format_: format of requests,
+                        pre checked by pre_process decorator
+        :param dataset: dataset name
+        :param matrix_id: matrix identifier
+
+        :returns: tuple of headers, status code, content
+        """
+
+        if format_ is not None and format_ not in FORMATS:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid format'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception, self.pretty_print)
+
+        if any([dataset is None,
+                dataset not in self.config['resources'].keys()]):
+
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception, self.pretty_print)
+
+        LOGGER.debug('Creating collection tiles')
+        LOGGER.debug('Loading provider')
+        try:
+            t = get_provider_by_type(
+                self.config['resources'][dataset]['providers'], 'tile')
+            p = load_plugin('provider', t)
+        except KeyError:
+            exception = {
+                'code': 'InvalidParameterValue',
+                'description': 'Invalid collection tiles'
+            }
+            LOGGER.error(exception)
+            return headers_, 400, to_json(exception, self.pretty_print)
+        except ProviderConnectionError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'connection error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, to_json(exception, self.pretty_print)
+        except ProviderQueryError:
+            exception = {
+                'code': 'NoApplicableCode',
+                'description': 'query error (check logs)'
+            }
+            LOGGER.error(exception)
+            return headers_, 500, to_json(exception, self.pretty_print)
+
+        if matrix_id not in p.options['schemes']:
+            exception = {
+                'code': 'NotFound',
+                'description': 'tileset not found'
+            }
+            LOGGER.error(exception)
+            return headers_, 404, to_json(exception, self.pretty_print)
+
+        metadata_format = p.options['metadata_format']
+        tilejson = True if (metadata_format == 'tilejson') else False
+
+        tiles_metadata = p.get_metadata(
+            dataset=dataset, server_url=self.config['server']['url'],
+            layer=p.get_layer(), tileset=matrix_id, tilejson=tilejson)
+
+        if format_ == 'html':  # render
+            metadata = dict(metadata=tiles_metadata)
+            metadata['id'] = dataset
+            metadata['title'] = self.config['resources'][dataset]['title']
+            metadata['tileset'] = matrix_id
+            metadata['format'] = metadata_format
+            headers_['Content-Type'] = 'text/html'
+
+            content = render_j2_template(self.config, 'tiles_metadata.html',
+                                         metadata)
+
+            return headers_, 200, content
+
+        return headers_, 200, to_json(tiles_metadata, self.pretty_print)
 
     @pre_process
     @jsonldify

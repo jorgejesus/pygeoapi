@@ -3,7 +3,7 @@
 # Authors: Francesco Bartoli <xbartolone@gmail.com>
 #
 #
-# Copyright (c) 2019 Francesco Bartoli
+# Copyright (c) 2020 Francesco Bartoli
 # Copyright (c) 2020 Tom Kralidis
 #
 # Permission is hereby granted, free of charge, to any person
@@ -43,10 +43,6 @@ import uvicorn
 from pygeoapi.api import API
 from pygeoapi.util import yaml_load
 
-app = Starlette()
-app.mount('/static', StaticFiles(
-    directory='{}{}static'.format(os.path.dirname(os.path.realpath(__file__)),
-                                  os.sep)))
 CONFIG = None
 
 if 'PYGEOAPI_CONFIG' not in os.environ:
@@ -54,6 +50,14 @@ if 'PYGEOAPI_CONFIG' not in os.environ:
 
 with open(os.environ.get('PYGEOAPI_CONFIG'), encoding='utf8') as fh:
     CONFIG = yaml_load(fh)
+
+STATIC_DIR = '{}{}static'.format(os.path.dirname(os.path.realpath(__file__)),
+                                 os.sep)
+if 'templates' in CONFIG['server']:
+    STATIC_DIR = CONFIG['server']['templates'].get('static', STATIC_DIR)
+
+app = Starlette()
+app.mount('/static', StaticFiles(directory=STATIC_DIR))
 
 # CORS: optionally enable from config.
 if CONFIG['server'].get('cors', False):
@@ -178,6 +182,69 @@ async def collection_queryables(request: Request, collection_id=None):
     return response
 
 
+@app.route('/collections/{name}/tiles')
+@app.route('/collections/{name}/tiles/')
+async def get_collection_tiles(request: Request, name=None):
+    """
+    OGC open api collections tiles access point
+
+    :param name: identifier of collection name
+
+    :returns: Starlette HTTP Response
+    """
+
+    if 'name' in request.path_params:
+        name = request.path_params['name']
+    headers, status_code, content = api_.get_collection_tiles(
+        request.headers, request.query_params, name)
+
+    response = Response(content=content, status_code=status_code)
+    if headers:
+        response.headers.update(headers)
+
+    return response
+
+
+@app.route('/collections/{name}/tiles/\
+    {tileMatrixSetId}/{tile_matrix}/{tileRow}/{tileCol}')
+@app.route('/collections/{name}/tiles/\
+    {tileMatrixSetId}/{tile_matrix}/{tileRow}/{tileCol}/')
+def get_collection_items_tiles(request: Request, name=None,
+                               tileMatrixSetId=None, tile_matrix=None,
+                               tileRow=None, tileCol=None):
+    """
+    OGC open api collection tiles service
+
+    :param name: identifier of collection name
+    :param tileMatrixSetId: identifier of tile matrix set
+    :param tile_matrix: identifier of {z} matrix index
+    :param tileRow: identifier of {y} matrix index
+    :param tileCol: identifier of {x} matrix index
+
+    :returns: HTTP response
+    """
+
+    if 'name' in request.path_params:
+        name = request.path_params['name']
+    if 'tileMatrixSetId' in request.path_params:
+        tileMatrixSetId = request.path_params['tileMatrixSetId']
+    if 'tile_matrix' in request.path_params:
+        tile_matrix = request.path_params['tile_matrix']
+    if 'tileRow' in request.path_params:
+        tileRow = request.path_params['tileRow']
+    if 'tileCol' in request.path_params:
+        tileCol = request.path_params['tileCol']
+    headers, status_code, content = api_.get_collection_items_tiles(
+        request.headers, request.query_params, name, tileMatrixSetId,
+        tile_matrix, tileRow, tileCol)
+
+    response = Response(content=content, status_code=status_code)
+    if headers:
+        response.headers.update(headers)
+
+    return response
+
+
 @app.route('/collections/{collection_id}/items')
 @app.route('/collections/{collection_id}/items/')
 @app.route('/collections/{collection_id}/items/{item_id}')
@@ -212,7 +279,7 @@ async def collection_items(request: Request, collection_id=None, item_id=None):
     return response
 
 
-@app.route('/collections/<collection_id>/coverage')
+@app.route('/collections/{collection_id}/coverage')
 def collection_coverage(request: Request, collection_id):
     """
     OGC API - Coverages coverage endpoint
@@ -221,6 +288,9 @@ def collection_coverage(request: Request, collection_id):
 
     :returns: Starlette HTTP Response
     """
+
+    if 'collection_id' in request.path_params:
+        collection_id = request.path_params['collection_id']
 
     headers, status_code, content = api_.get_collection_coverage(
         request.headers, request.query_params, collection_id)
@@ -233,7 +303,7 @@ def collection_coverage(request: Request, collection_id):
     return response
 
 
-@app.route('/collections/<collection_id>/coverage/domainset')
+@app.route('/collections/{collection_id}/coverage/domainset')
 def collection_coverage_domainset(request: Request, collection_id):
     """
     OGC API - Coverages coverage domainset endpoint
@@ -242,6 +312,9 @@ def collection_coverage_domainset(request: Request, collection_id):
 
     :returns: Starlette HTTP Response
     """
+
+    if 'collection_id' in request.path_params:
+        collection_id = request.path_params['collection_id']
 
     headers, status_code, content = api_.get_collection_coverage_domainset(
         request.headers, request.query_params, collection_id)
@@ -254,7 +327,7 @@ def collection_coverage_domainset(request: Request, collection_id):
     return response
 
 
-@app.route('/collections/<collection_id>/coverage/rangetype')
+@app.route('/collections/{collection_id}/coverage/rangetype')
 def collection_coverage_rangetype(request: Request, collection_id):
     """
     OGC API - Coverages coverage rangetype endpoint
@@ -263,6 +336,9 @@ def collection_coverage_rangetype(request: Request, collection_id):
 
     :returns: Starlette HTTP Response
     """
+
+    if 'collection_id' in request.path_params:
+        collection_id = request.path_params['collection_id']
 
     headers, status_code, content = api_.get_collection_coverage_rangetype(
         request.headers, request.query_params, collection_id)

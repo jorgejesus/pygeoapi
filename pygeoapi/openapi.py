@@ -34,10 +34,11 @@ import os
 import click
 import yaml
 
+from pygeoapi import __version__
 from pygeoapi.plugin import load_plugin
 from pygeoapi.provider.base import ProviderTypeError
 from pygeoapi.util import (filter_dict_by_key_value, get_provider_by_type,
-                           yaml_load)
+                           filter_providers_by_type, yaml_load)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,9 @@ OPENAPI_YAML = {
     'oapif': 'http://schemas.opengis.net/ogcapi/features/part1/1.0/openapi/ogcapi-features-1.yaml',  # noqa
     'oapip': 'https://raw.githubusercontent.com/opengeospatial/wps-rest-binding/master/core/openapi',  # noqa
 #    'oacov': 'https://raw.githubusercontent.com/opengeospatial/OGC-API-Sprint-August-2020/master/docs/Draft_Spring_Guide_for_OGC_API_Coverages/openapi'  # noqa
-    'oacov': 'https://raw.githubusercontent.com/tomkralidis/ogcapi-coverages-1/fix-cis/yaml-unresolved'  # noqa
+    'oacov': 'https://raw.githubusercontent.com/tomkralidis/ogcapi-coverages-1/fix-cis/yaml-unresolved',  # noqa
+    'oapit': 'https://raw.githubusercontent.com/opengeospatial/OGC-API-Tiles/master/openapi/swaggerhub/tiles.yaml',  # noqa
+    'oapimt': 'https://raw.githubusercontent.com/opengeospatial/OGC-API-Tiles/master/openapi/swaggerhub/map-tiles.yaml'  # noqa
 }
 
 
@@ -143,7 +146,7 @@ def get_oas_30(cfg):
             'name': cfg['metadata']['license']['name'],
             'url': cfg['metadata']['license']['url']
         },
-        'version': '3.0.2'
+        'version': __version__
     }
     oas['info'] = info
 
@@ -569,6 +572,121 @@ def get_oas_30(cfg):
             }
         except ProviderTypeError:
             LOGGER.debug('collection is not coverage based')
+
+        LOGGER.debug('setting up tiles endpoints')
+        tile_extension = filter_providers_by_type(
+            collections[k]['providers'], 'tile')
+
+        if tile_extension:
+            tp = load_plugin('provider', tile_extension)
+            oas['components']['responses'].update({
+                    'Tiles': {
+                        'description': 'Retrieves the tiles description for this collection', # noqa
+                        'content': {
+                            'application/json': {
+                                'schema': {
+                                    '$ref': '#/components/schemas/tiles'
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+
+            oas['components']['schemas'].update({
+                    'tilematrixsetlink': {
+                        'type': 'object',
+                        'required': ['tileMatrixSet'],
+                        'properties': {
+                            'tileMatrixSet': {
+                                'type': 'string'
+                            },
+                            'tileMatrixSetURI': {
+                                'type': 'string'
+                            }
+                        }
+                    },
+                    'tiles': {
+                        'type': 'object',
+                        'required': [
+                            'tileMatrixSetLinks',
+                            'links'
+                        ],
+                        'properties': {
+                            'tileMatrixSetLinks': {
+                                'type': 'array',
+                                'items': {
+                                    '$ref': '#/components/schemas/tilematrixsetlink' # noqa
+                                }
+                            },
+                            'links': {
+                                'type': 'array',
+                                'items': {'$ref': '{}#/components/schemas/link'.format(OPENAPI_YAML['oapit'])},  # noqa
+                            }
+                        }
+                    }
+                }
+            )
+
+            tiles_path = '{}/tiles'.format(collection_name_path)
+
+            paths[tiles_path] = {
+                'get': {
+                    'summary': 'Fetch a {} tiles description'.format(v['title']), # noqa
+                    'description': v['description'],
+                    'tags': [k],
+                    'operationId': 'describe{}Tiles'.format(k.capitalize()),
+                    'parameters': [
+                        items_f,
+                    ],
+                    'responses': {
+                        '200': {'$ref': '#/components/responses/Tiles'},
+                        '400': {'$ref': '{}#/components/responses/InvalidParameter'.format(OPENAPI_YAML['oapif'])},  # noqa
+                        '404': {'$ref': '{}#/components/responses/NotFound'.format(OPENAPI_YAML['oapif'])},  # noqa
+                        '500': {'$ref': '{}#/components/responses/ServerError'.format(OPENAPI_YAML['oapif'])}  # noqa
+                    }
+                }
+            }
+
+            tiles_data_path = '{}/tiles/{{tileMatrixSetId}}/{{tileMatrix}}/{{tileRow}}/{{tileCol}}'.format(collection_name_path)  # noqa
+
+            paths[tiles_data_path] = {
+                'get': {
+                    'summary': 'Get a {} tile'.format(v['title']),
+                    'description': v['description'],
+                    'tags': [k],
+                    'operationId': 'get{}Tiles'.format(k.capitalize()),
+                    'parameters': [{
+                        'name': 'f',
+                        'in': 'query',
+                        'description': 'The optional f parameter indicates the output format which the server shall provide as part of the response document.',  # noqa
+                        'required': False,
+                        'schema': {
+                            'type': 'string',
+                            'enum': [tp.format_type],
+                            'default': tp.format_type
+                        },
+                        'style': 'form',
+                        'explode': False
+                    }],
+                    'responses': {
+                        '400': {'$ref': '{}#/components/responses/InvalidParameter'.format(OPENAPI_YAML['oapif'])},  # noqa
+                        '404': {'$ref': '{}#/components/responses/NotFound'.format(OPENAPI_YAML['oapif'])},  # noqa
+                        '500': {'$ref': '{}#/components/responses/ServerError'.format(OPENAPI_YAML['oapif'])}  # noqa
+                    }
+                }
+            }
+            mimetype = tile_extension['format']['mimetype']
+            paths[tiles_data_path]['get']['responses']['200'] = {
+                'content': {
+                    mimetype: {
+                        'schema': {
+                            'type': 'string',
+                            'format': 'binary'
+                        }
+                    }
+                }
+            }
 
     LOGGER.debug('setting up STAC')
     stac_collections = filter_dict_by_key_value(cfg['resources'],

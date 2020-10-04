@@ -79,3 +79,9 @@ This directory provides test data to demonstrate functionality.
 - Source: [NOAA Physical Sciences Library](https://psl.noaa.gov)
 - URL: [https://psl.noaa.gov/data/gridded/data.coads.1deg.html](https://psl.noaa.gov/data/gridded/data.coads.1deg.html)
 - License: ICOADS data provided by the NOAA/OAR/ESRL PSL, Boulder, Colorado, USA, from their [Web site](https://psl.noaa.gov)
+
+### `analysed_sst.nc`
+- source: [NASA Physical Oceanography Distributed Active Archive Center](https://podaac.jpl.nasa.gov)
+- URL: https://registry.opendata.aws/mur
+- License: https://registry.opendata.aws/mur/#License
+
